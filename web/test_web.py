@@ -7,6 +7,8 @@ import unittest
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
+from anki.errors import SearchError
+
 from server import Library, InvalidRequest, Handler, LocalServer
 
 
@@ -23,6 +25,13 @@ class CollectionTests(unittest.TestCase):
 
     def add(self, **kwargs):
         return self.lib.add_note(dict(deck_id=self.did, front="Hello <world>", back="Привет\nмир", tags="test language", **kwargs))
+
+    def test_collection_messages_are_in_russian(self):
+        self.add()
+        self.assertRegex(self.lib.overview()["undo"], "[А-Яа-я]")
+        with self.assertRaises(SearchError) as caught:
+            self.lib.notes({"search": ['"']})
+        self.assertRegex(str(caught.exception), "[А-Яа-я]")
 
     def test_real_scheduler_and_stale_answer(self):
         self.add()

@@ -17,6 +17,7 @@ from pathlib import Path
 from socketserver import TCPServer
 from urllib.parse import parse_qs, unquote, urlsplit
 
+from anki._backend import RustBackend
 from anki.collection import Collection
 from anki.cards import Card
 from anki.errors import NotFoundError, SearchError, InvalidInput
@@ -51,7 +52,7 @@ class Library:
     def __init__(self, path):
         path = Path(path).resolve()
         path.parent.mkdir(parents=True, exist_ok=True)
-        self.col = Collection(str(path))
+        self.col = Collection(str(path), backend=RustBackend(langs=["ru"]))
         self.pending = None
         self.csrf = secrets.token_urlsafe(32)
         self.last_answer_step = None

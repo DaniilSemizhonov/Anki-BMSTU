@@ -4,6 +4,12 @@ const $ = (s, root=document) => root.querySelector(s);
 const esc = value => String(value).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 let overview, currentDeck, review, sessionInfo, revealed=false, busy=false, browseVersion=0;
 let telegramLoginAttempted=false, activeView="decks", routeVersion=0;
+const browseState={search:"", deck_id:""};
+const russianPlurals=new Intl.PluralRules("ru");
+function plural(count, one, few, many, other=many) { return ({one, few, many, other})[russianPlurals.select(count)]; }
+function cardWord(count) { return plural(count,"карточка","карточки","карточек"); }
+const fieldLabels=new Map(Object.entries({Front:"Вопрос", Back:"Ответ", Text:"Текст", "Back Extra":"Пояснение"}));
+function fieldLabel(name) { return fieldLabels.get(name) || name; }
 let telegram=window.Telegram?.WebApp;
 const main=$("#main"), dialog=$("#dialog");
 let toastTimer;
@@ -52,9 +58,9 @@ function renderDecks() {
   const due=overview.decks.filter(d=>!d.name.includes("::")).reduce((n,d)=>n+d.new+d.learning+d.review,0);
   const date=new Intl.DateTimeFormat("ru",{day:"numeric",month:"long",weekday:"long"}).format(new Date());
   main.innerHTML=`<div class="page-heading"><div><p class="eyebrow">ВАШЕ ПРОСТРАНСТВО ДЛЯ ЗНАНИЙ</p><h1>Хороший день, чтобы вспомнить.</h1><p>Один маленький шаг к тому, что останется с вами.</p></div><span class="date">${esc(date)}</span></div>
-  <section class="summary" aria-label="Статистика коллекции"><div class="stat accent"><div class="stat-label">К повторению сегодня <span>↗</span></div><div class="stat-value">${due}<small>карточек в очереди</small></div></div><div class="stat"><div class="stat-label">Повторено сегодня <span>✓</span></div><div class="stat-value">${overview.reviewed}<small>ответов</small></div></div><div class="stat"><div class="stat-label">В вашей коллекции <span>▤</span></div><div class="stat-value">${overview.total}<small>карточек</small></div></div></section>
+  <section class="summary" aria-label="Статистика коллекции"><div class="stat accent"><div class="stat-label">К повторению сегодня <span>↗</span></div><div class="stat-value">${due}<small>${cardWord(due)} в очереди</small></div></div><div class="stat"><div class="stat-label">Повторено сегодня <span>✓</span></div><div class="stat-value">${overview.reviewed}<small>${plural(overview.reviewed,"ответ","ответа","ответов")}</small></div></div><div class="stat"><div class="stat-label">В вашей коллекции <span>▤</span></div><div class="stat-value">${overview.total}<small>${cardWord(overview.total)}</small></div></div></section>
   <div class="section-top"><div class="section-title"><h2>Мои колоды</h2><span class="count-pill">${overview.decks.length}</span></div><button class="button" id="new-deck">＋ Новая колода</button></div>
-  <section class="deck-table" aria-label="Колоды"><div class="table-head"><span>Название колоды</span><span>Новые</span><span>Учить</span><span>Повторить</span><span></span></div>${overview.decks.map(d=>`<div class="deck-row"><div class="deck-name"><span class="deck-icon" aria-hidden="true">▤</span><div><strong>${esc(d.name.replaceAll("::"," / "))}</strong><small>${d.total} карточек${d.name.includes("::")?" · вложенная колода":""}</small><button class="deck-settings" data-settings="${d.id}" aria-label="Настроить колоду ${esc(d.name)}">Настроить ⚙</button></div></div><span class="deck-number blue">${d.new}</span><span class="deck-number orange">${d.learning}</span><span class="deck-number green">${d.review}</span><button class="button ${d.new+d.learning+d.review?"primary":""}" data-study="${d.id}">${d.total?"Повторять →":"Добавить ＋"}</button></div>`).join("")}</section>
+  <section class="deck-table" aria-label="Колоды"><div class="table-head"><span>Название колоды</span><span>Новые</span><span>Учить</span><span>Повторить</span><span></span></div>${overview.decks.map(d=>`<div class="deck-row"><div class="deck-name"><span class="deck-icon" aria-hidden="true">▤</span><div><strong>${esc(d.name.replaceAll("::"," / "))}</strong><small>${d.total} ${cardWord(d.total)}${d.name.includes("::")?" · вложенная колода":""}</small><button class="deck-settings" data-settings="${d.id}" aria-label="Настроить колоду ${esc(d.name)}">Настроить ⚙</button></div></div><span class="deck-number blue">${d.new}</span><span class="deck-number orange">${d.learning}</span><span class="deck-number green">${d.review}</span><button class="button ${d.new+d.learning+d.review?"primary":""}" data-study="${d.id}">${d.total?"Повторять →":"Добавить ＋"}</button></div>`).join("")}</section>
   ${!overview.total?`<div class="empty"><div class="empty-symbol">✧</div><h2>Начните с одной карточки</h2><p>Добавьте вопрос и ответ или импортируйте готовую колоду Anki в формате .apkg.</p><button class="button dark" id="first-card">＋ Создать первую карточку</button></div>`:""}
   <div class="tip"><span aria-hidden="true">☼</span><div><strong>Знания любят регулярность</strong><p>Отвечайте честно: «Снова», если забыли, и «Хорошо», если вспомнили. Anki сам выберет время следующего повторения.</p></div></div>`;
   main.querySelectorAll("[data-settings]").forEach(b=>b.onclick=()=>deckSettings(b.dataset.settings));
@@ -96,7 +102,7 @@ function openEditor(note, selected) {
   openForm(note?"Редактировать заметку":"Добавить карточку", `${note?"":`<div class="editor-grid"><div><label for="note-deck">Колода</label><select id="note-deck" name="deck_id">${deckOptions(selected)}</select></div><div>${types}</div></div>`}
     <div class="editor-toolbar" role="toolbar" aria-label="Форматирование"><button type="button" data-wrap="b" aria-label="Жирный"><b>B</b></button><button type="button" data-wrap="i" aria-label="Курсив"><i>I</i></button><button type="button" id="insert-cloze" title="Создать пропуск из выделенного текста">[ … ]</button><button type="button" id="attach-media">＋ Медиа</button><label for="note-format" class="format-label">Формат</label><select id="note-format" name="format"><option value="text" ${note?"":"selected"}>Текст</option><option value="html" ${note?"selected":""}>HTML</option></select></div>
     <p id="editor-help" class="form-help">Одна мысль — одна карточка. Можно прикрепить изображение, аудио или видео.</p>
-    ${fields.map((f,i)=>`<label for="field-${i}" data-field-label="${i}">${esc(f.name)}</label><textarea id="field-${i}" name="field-${i}" maxlength="${note?100000:20000}" ${i===0||(!note&&i===1)?"required":""}>${esc(f.value)}</textarea>`).join("")}
+    ${fields.map((f,i)=>`<label for="field-${i}" data-field-label="${i}">${esc(fieldLabel(f.name))}</label><textarea id="field-${i}" name="field-${i}" maxlength="${note?100000:20000}" ${i===0||(!note&&i===1)?"required":""}>${esc(f.value)}</textarea>`).join("")}
     <label for="note-tags">Метки через пробел</label><input id="note-tags" name="tags" maxlength="1000" value="${esc(note?.tags.join(" ") || "")}" placeholder="семестр1 матанализ">
     <input type="file" id="media-input" accept=".png,.jpg,.jpeg,.gif,.webp,.mp3,.m4a,.ogg,.wav,.mp4,.webm" hidden>`, async form=> {
       const values=fields.map((_,i)=>form.get(`field-${i}`));
@@ -173,7 +179,7 @@ function cardDocument(content, media) {
 }
 function renderStudy() {
   const card=review.card;
-  main.innerHTML=`<div class="review-top"><button class="button" id="leave-study">← К колодам</button><button class="button quiet" id="undo-review" ${review.can_undo?"":"disabled"}>↶ Отменить ответ</button><div class="review-counters"><span class="blue">${review.counts.new} новых</span><span class="orange">${review.counts.learning} учить</span><span class="green">${review.counts.review} повторить</span></div></div>
+  main.innerHTML=`<div class="review-top"><button class="button" id="leave-study">← К колодам</button><button class="button quiet" id="undo-review" ${review.can_undo?"":"disabled"}>↶ Отменить ответ</button><div class="review-counters"><span class="blue">${review.counts.new} ${plural(review.counts.new,"новая","новые","новых")}</span><span class="orange">${review.counts.learning} учить</span><span class="green">${review.counts.review} повторить</span></div></div>
   <div class="page-heading"><div><p class="eyebrow">ВРЕМЯ ВСПОМНИТЬ</p><h1>${esc(currentDeck.name.replaceAll("::"," / "))}</h1></div></div>
   ${card?`<section class="review-card"><div class="card-meta">${revealed?"ОТВЕТ":"ВОПРОС"}<details class="card-menu"><summary aria-label="Действия с карточкой">•••</summary><button type="button" data-card-action="bury">Отложить до завтра</button><button type="button" data-card-action="suspend">Приостановить</button></details></div><iframe class="card-frame" id="card-frame" sandbox="allow-same-origin" title="${revealed?"Ответ карточки":"Вопрос карточки"}"></iframe></section><div class="review-actions">${revealed?`<div class="ratings">${["Снова","Трудно","Хорошо","Легко"].map((label,i)=>`<button class="rating" data-rating="${i+1}">${label}<span>${esc(card.intervals[i]||"")}</span></button>`).join("")}</div><p class="shortcut-hint">Оцените, насколько легко вы вспомнили · клавиши 1–4</p>`:`<button class="button dark large" id="reveal">Показать ответ</button><p class="shortcut-hint">Сначала попробуйте вспомнить · пробел для ответа</p>`}</div>`:`<section class="review-card empty"><div class="empty-symbol">✧</div><h2>На сейчас всё!</h2><p>В доступной очереди больше нет карточек. Anki покажет следующие, когда придёт время повторения.</p><button class="button dark" id="check-again">Проверить очередь</button></section>`}`;
   $("#leave-study").onclick=route;
@@ -188,7 +194,12 @@ function renderStudy() {
     catch(error) {toast(error.message);} finally {busy=false;}
   });
   $("#reveal")?.addEventListener("click",()=>{revealed=true;renderStudy();});
-  if(card) $("#card-frame").srcdoc=cardDocument(revealed?card.answer:card.question, revealed?card.answer_media:card.question_media);
+  if(card) {
+    const frame=$("#card-frame");
+    // Listen from the parent without allowing scripts in imported card templates.
+    frame.addEventListener("load",()=>frame.contentDocument?.addEventListener("keydown",studyKeydown));
+    frame.srcdoc=cardDocument(revealed?card.answer:card.question, revealed?card.answer_media:card.question_media);
+  }
   $("#check-again")?.addEventListener("click",()=>startStudy(currentDeck));
   main.querySelectorAll("[data-rating]").forEach(b=>b.onclick=()=>answer(Number(b.dataset.rating)));
 }
@@ -200,11 +211,17 @@ async function answer(rating) {
   catch(error) { toast(error.message); main.querySelectorAll("[data-rating]").forEach(b=>b.disabled=false); }
   finally { busy=false; }
 }
-function plain(html) { const doc=new DOMParser().parseFromString(html,"text/html"); return doc.body.textContent || "[Медиа]"; }
+function plain(html) {
+  const doc=new DOMParser().parseFromString(html,"text/html");
+  return doc.body.textContent.trim() || (doc.querySelector("img, audio, video") || /\[sound:[^\]]+\]/.test(html) ? "[Медиа]" : "");
+}
 function renderBrowse() {
   setNavigation("browse");
   main.innerHTML=`<div class="page-heading"><div><p class="eyebrow">ВСЁ, ЧТО ВЫ УЧИТЕ</p><h1>Все карточки</h1><p>Найдите нужное и освежите детали.</p></div></div><form class="search-bar" id="search-form"><input name="search" aria-label="Поиск карточек" placeholder="Поиск по коллекции…"><select name="deck_id" aria-label="Колода"><option value="">Все колоды</option>${deckOptions()}</select><button class="button dark">Найти</button></form><div id="notes-results" aria-live="polite"></div>`;
   $("#search-form").onsubmit=event=>{event.preventDefault();loadNotes();};
+  $("#search-form input").value=browseState.search;
+  $("#search-form select").value=browseState.deck_id;
+  $("#search-form input").oninput=event=>browseState.search=event.target.value;
   $("#search-form select").onchange=loadNotes;
   loadNotes();
 }
@@ -214,9 +231,11 @@ async function loadNotes() {
   container.innerHTML=`<div class="loading">Ищем карточки…</div>`;
   try {
     const query=new URLSearchParams(new FormData($("#search-form")));
+    browseState.search=query.get("search") || "";
+    browseState.deck_id=query.get("deck_id") || "";
     const result=await api("/api/notes?"+query);
     if(version!==browseVersion || !container.isConnected) return;
-    container.innerHTML=`<p class="notes-meta">Найдено записей: ${result.total}${result.total>200?" · показаны первые 200, уточните поиск":""}</p><div class="deck-table">${result.notes.length?result.notes.map(note=>`<article class="note-item">${note.fields.slice(0,2).map(f=>`<div class="note-field"><small>${esc(f.name)}</small>${esc(plain(f.value))}</div>`).join("")}<div class="note-controls"><span class="tags">${note.tags.map(esc).join(" · ")}</span><button class="button quiet" data-edit="${note.id}" aria-label="Редактировать карточку">Изменить ↗</button><button class="button quiet" data-toggle="${note.id}">${note.cards.every(c=>c.suspended)?"Продолжить":"Приостановить"}</button><button class="button quiet danger" data-remove="${note.id}">Удалить</button></div></article>`).join(""):`<div class="empty"><h2>Здесь пока пусто</h2><p>Измените запрос или добавьте свою первую карточку.</p></div>`}</div>`;
+    container.innerHTML=`<p class="notes-meta">Найдено записей: ${result.total}${result.total>200?" · показаны первые 200, уточните поиск":""}</p><div class="deck-table">${result.notes.length?result.notes.map(note=>`<article class="note-item">${note.fields.slice(0,2).map(f=>`<div class="note-field"><small>${esc(fieldLabel(f.name))}</small>${esc(plain(f.value))}</div>`).join("")}<div class="note-controls"><span class="tags">${note.tags.map(esc).join(" · ")}</span><button class="button quiet" data-edit="${note.id}" aria-label="Редактировать карточку">Изменить ↗</button><button class="button quiet" data-toggle="${note.id}">${note.cards.every(c=>c.suspended)?"Продолжить":"Приостановить"}</button><button class="button quiet danger" data-remove="${note.id}">Удалить</button></div></article>`).join(""):`<div class="empty"><h2>Здесь пока пусто</h2><p>Измените запрос или добавьте свою первую карточку.</p></div>`}</div>`;
     container.querySelectorAll("[data-edit]").forEach(button=>button.onclick=()=>editNote(result.notes.find(n=>n.id===button.dataset.edit)));
     container.querySelectorAll("[data-toggle]").forEach(button=>button.onclick=async()=> {
       button.disabled=true;
@@ -248,7 +267,7 @@ async function renderStats() {
   const version=routeVersion;
   const data=await api("/api/statistics"), max=Math.max(1,...data.days.map(d=>d.reviews));
   if(version!==routeVersion) return;
-  main.innerHTML=`<div class="page-heading"><div><p class="eyebrow">КАК ИДЁТ УЧЁБА</p><h1>Ваш прогресс</h1><p>Последние 30 дней по истории повторений Anki.</p></div></div><section class="summary"><div class="stat accent"><div class="stat-label">Ответов за 30 дней</div><div class="stat-value">${data.reviews}</div></div><div class="stat"><div class="stat-label">Время повторений</div><div class="stat-value">${data.minutes}<small>минут</small></div></div><div class="stat"><div class="stat-label">Ответов «Снова»</div><div class="stat-value">${data.again}</div></div></section><section class="stats-panel"><h2>Ритм повторений</h2><div class="activity-chart" role="img" aria-label="Ответы за 30 дней: ${data.reviews}">${data.days.map(d=>`<div class="activity-day" title="${d.date}: ${d.reviews} ответов"><span style="height:${Math.max(2,d.reviews/max*100)}%"></span><small>${d.date}</small><b>${d.reviews}</b></div>`).join("")}</div><p class="form-help">Каждый столбец — один день Anki. Ответы импортированных карточек также учитываются.</p></section><section class="stats-panel"><h2>Состав коллекции</h2><div class="distribution">${[["0","Новые"],["1","В изучении"],["2","На повторении"],["3","Переучивание"],["-1","Приостановлены"]].map(([key,label])=>`<div><span>${label}</span><strong>${data.distribution[key]||0}</strong></div>`).join("")}</div></section>`;
+  main.innerHTML=`<div class="page-heading"><div><p class="eyebrow">КАК ИДЁТ УЧЁБА</p><h1>Ваш прогресс</h1><p>Последние 30 дней по истории повторений Anki.</p></div></div><section class="summary"><div class="stat accent"><div class="stat-label">Ответов за 30 дней</div><div class="stat-value">${data.reviews}</div></div><div class="stat"><div class="stat-label">Время повторений</div><div class="stat-value">${data.minutes}<small>${plural(data.minutes,"минута","минуты","минут","минуты")}</small></div></div><div class="stat"><div class="stat-label">Ответов «Снова»</div><div class="stat-value">${data.again}</div></div></section><section class="stats-panel"><h2>Ритм повторений</h2><div class="activity-chart" role="img" aria-label="Ответы за 30 дней: ${data.reviews}">${data.days.map(d=>`<div class="activity-day" title="${d.date}: ${d.reviews} ${plural(d.reviews,"ответ","ответа","ответов")}"><span style="height:${Math.max(2,d.reviews/max*100)}%"></span><small>${d.date}</small><b>${d.reviews}</b></div>`).join("")}</div><p class="form-help">Каждый столбец — один день Anki. Ответы импортированных карточек также учитываются.</p></section><section class="stats-panel"><h2>Состав коллекции</h2><div class="distribution">${[["0","Новые"],["1","В изучении"],["2","На повторении"],["3","Переучивание"],["-1","Приостановлены"]].map(([key,label])=>`<div><span>${label}</span><strong>${data.distribution[key]||0}</strong></div>`).join("")}</div></section>`;
 }
 async function ensureAccess() {
   sessionInfo=await api("/api/session");
@@ -298,12 +317,14 @@ $("#import-file").onchange=async event=> {
   finally {busy=false;$("#import-button").disabled=false;event.target.value="";}
 };
 window.addEventListener("hashchange",route);
-document.addEventListener("keydown",event=> {
-  if(dialog.open || busy || ["INPUT","TEXTAREA","SELECT","BUTTON","A"].includes(document.activeElement?.tagName)) return;
+function studyKeydown(event) {
+  if(dialog.open || busy || event.defaultPrevented || event.repeat || event.ctrlKey || event.metaKey || event.altKey) return;
+  if(event.target.closest?.("input, textarea, select, button, a, summary, audio, video, [contenteditable]:not([contenteditable='false'])")) return;
   if(!review?.card) return;
   if(event.code==="Space" && !revealed) {event.preventDefault();revealed=true;renderStudy();}
   else if(revealed && /^[1-4]$/.test(event.key)) {event.preventDefault();answer(Number(event.key));}
-});
+}
+document.addEventListener("keydown",studyKeydown);
 $("#undo-button").onclick=async()=> {
   if(busy) return; busy=true;
   try {await api("/api/undo",{});busy=false;await route();toast("Последнее действие отменено");}
