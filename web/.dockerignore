@@ -1,0 +1,7 @@
+*
+!requirements.txt
+!server.py
+!auth.py
+!nginx.conf
+!static/
+!static/**

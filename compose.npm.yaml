@@ -1,0 +1,13 @@
+# Optional: connect only the web container to Nginx Proxy Manager's network.
+# docker compose -f compose.yaml -f compose.npm.yaml up -d --build
+services:
+  web:
+    networks:
+      npm:
+        aliases:
+          - anki-bmstu-web
+
+networks:
+  npm:
+    external: true
+    name: ${NPM_NETWORK:?Set NPM_NETWORK to Nginx Proxy Manager's Docker network}

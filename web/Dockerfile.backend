@@ -1,0 +1,23 @@
+FROM python:3.12-slim-bookworm
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    HOME=/tmp
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends libstdc++6 tzdata \
+    && rm -rf /var/lib/apt/lists/* \
+    && groupadd --gid 10001 anki \
+    && useradd --uid 10001 --gid anki --no-create-home anki \
+    && mkdir -p /data \
+    && chown anki:anki /data
+
+WORKDIR /app
+COPY requirements.txt ./
+RUN python -m pip install --no-cache-dir --only-binary=:all: -r requirements.txt
+COPY server.py auth.py ./
+
+USER 10001:10001
+EXPOSE 8765
+STOPSIGNAL SIGINT
+CMD ["python", "server.py", "--host", "0.0.0.0", "--api-only", "--collection", "/data/collection.anki2"]

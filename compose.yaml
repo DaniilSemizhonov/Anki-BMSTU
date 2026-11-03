@@ -1,0 +1,72 @@
+name: anki-bmstu
+
+services:
+  backend:
+    build:
+      context: ./web
+      dockerfile: Dockerfile.backend
+    restart: unless-stopped
+    init: true
+    environment:
+      ANKI_PUBLIC_URL: ${ANKI_PUBLIC_URL:?Set ANKI_PUBLIC_URL to your HTTPS URL}
+      ANKI_WEB_PASSWORD: ${ANKI_WEB_PASSWORD:?Set a private password of at least 12 characters}
+      ANKI_TELEGRAM_BOT_TOKEN: ${ANKI_TELEGRAM_BOT_TOKEN:-}
+      ANKI_TELEGRAM_USER_ID: ${ANKI_TELEGRAM_USER_ID:-}
+      TZ: ${TZ:-Europe/Moscow}
+    volumes:
+      - anki_data:/data
+    networks:
+      private: {}
+    expose:
+      - "8765"
+    read_only: true
+    tmpfs:
+      - /tmp:mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    stop_grace_period: 60s
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8765/health', timeout=5).close()"]
+      interval: 30s
+      timeout: 10s
+      start_period: 30s
+      retries: 3
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  web:
+    build:
+      context: ./web
+      dockerfile: Dockerfile.web
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "${WEB_BIND:-127.0.0.1}:${WEB_PORT:-8080}:8080"
+    networks:
+      private: {}
+      edge: {}
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  anki_data:
+
+networks:
+  private:
+    internal: true
+  edge: {}
