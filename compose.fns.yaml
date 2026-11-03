@@ -1,0 +1,25 @@
+# Optional self-hosted Fast Note Sync. No backend port is published.
+# docker compose -f compose.yaml -f compose.fns.yaml up -d --build
+services:
+  backend:
+    networks:
+      notes: {}
+
+  fast-note-sync:
+    image: ${FNS_IMAGE:-haierkeys/fast-note-sync-service:latest}
+    restart: unless-stopped
+    init: true
+    ports:
+      - "${FNS_BIND:-127.0.0.1}:${FNS_PORT:-9000}:9000"
+    volumes:
+      - fast_note_storage:/fast-note-sync/storage
+      - fast_note_config:/fast-note-sync/config
+    networks:
+      notes: {}
+
+volumes:
+  fast_note_storage:
+  fast_note_config:
+
+networks:
+  notes: {}

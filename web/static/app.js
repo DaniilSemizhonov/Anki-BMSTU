@@ -32,7 +32,7 @@ function setNavigation(view) {
   activeView=view;
   if(telegram?.initData) { if(view==="decks" && !dialog.open) telegram.BackButton.hide(); else telegram.BackButton.show(); }
   document.querySelectorAll("[data-nav]").forEach(a=>a.classList.toggle("active",a.dataset.nav===view));
-  $("#breadcrumb").innerHTML=`Библиотека <span>/</span> ${view==="browse"?"Все карточки":view==="study"?"Повторение":view==="stats"?"Статистика":"Колоды"}`;
+  $("#breadcrumb").innerHTML=`Библиотека <span>/</span> ${view==="settings"?"Настройки":view==="browse"?"Все карточки":view==="study"?"Повторение":view==="stats"?"Статистика":"Колоды"}`;
 }
 function errorView(error) {
   if(error.status===401) { overview=null; renderLogin(); return; }
@@ -49,6 +49,7 @@ async function route() {
     await refresh();
     if(version!==routeVersion) return;
     if(location.hash.startsWith("#browse")) renderBrowse();
+    else if(location.hash.startsWith("#settings")) await renderSettings();
     else if(location.hash.startsWith("#stats")) await renderStats();
     else renderDecks();
   } catch(error) { errorView(error); }
@@ -92,6 +93,7 @@ function newDeck() {
 }
 function deckOptions(selected) { return overview.decks.map(d=>`<option value="${d.id}" ${d.id===selected?"selected":""}>${esc(d.name)}</option>`).join(""); }
 function addNote(selected) {
+  if (busy) return toast("Дождитесь завершения текущей операции.");
   if (!overview) return toast("Дождитесь загрузки коллекции");
   if (!overview.decks.length) return newDeck();
   openEditor(null, selected);
@@ -334,6 +336,67 @@ $("#logout-button").onclick=async()=> {
   try {await api("/api/logout",{});telegramLoginAttempted=true;await route();}
   catch(error) {toast(error.message);}
 };
+async function renderSettings() {
+  setNavigation("settings");
+  const version=routeVersion, settings=await api("/api/settings");
+  if(version!==routeVersion) return;
+  main.innerHTML=`<div class="page-heading"><div><p class="eyebrow">ВАШЕ ПРОСТРАНСТВО</p><h1>Настройки</h1><p>Обменивайтесь карточками с Markdown-хранилищем вручную.</p></div></div>
+  <section class="stats-panel settings-panel"><h2>Fast Note Sync</h2><p class="form-help">Укажите свой сервис и папку для карточек. Токен сохраняется на сервере Anki.</p>
+  <form id="fns-form"><label for="fns-url">Адрес сервиса</label><input id="fns-url" name="url" type="url" maxlength="500" placeholder="https://notes.example.com" value="${esc(settings.url)}">
+  <div class="editor-grid"><div><label for="fns-vault">Хранилище (vault)</label><input id="fns-vault" name="vault" maxlength="500" placeholder="Мои заметки" value="${esc(settings.vault)}"></div><div><label for="fns-folder">Папка для карточек</label><input id="fns-folder" name="folder" required maxlength="500" value="${esc(settings.folder)}"></div></div>
+  <label for="fns-token">Токен доступа</label><input id="fns-token" name="token" type="password" maxlength="8192" autocomplete="new-password" placeholder="${settings.has_token?"Токен сохранён. Оставьте пустым, чтобы сохранить его.":"Токен Fast Note Sync"}"><label class="checkbox-label"><input type="checkbox" name="clear_token"> Удалить сохранённый токен</label>
+  <div class="settings-actions"><button class="button dark" type="submit">Сохранить подключение</button><button class="button" type="button" id="fns-check">Проверить подключение</button></div></form><p id="fns-message" role="status" aria-live="polite"></p></section>
+  <section class="stats-panel settings-panel"><h2>Выгрузить карточки</h2><p class="form-help">Каждая заметка станет отдельным .md-файлом. Повторная выгрузка обновит файлы Anki в выбранной папке. История повторений остаётся в Anki. Изображения и звук не копируются; в Markdown сохраняются ссылки на них.</p><div class="settings-actions"><button class="button dark" id="fns-export">Выгрузить в хранилище</button><a class="button" href="/api/markdown/export" download>Скачать Markdown (.zip)</a></div></section>
+  <section class="stats-panel settings-panel"><h2>Импортировать Markdown</h2><p class="form-help">Сначала покажем, сколько заметок добавится или обновится. Связанные заметки сохранят расписание и историю. Удаление файлов не удаляет карточки из Anki.</p><label for="markdown-deck">Колода для новых файлов без указанной колоды</label><select id="markdown-deck">${deckOptions()}</select><div class="settings-actions"><button class="button" id="fns-import">Прочитать из хранилища</button><button class="button" id="markdown-choose">Выбрать .md с компьютера</button><input type="file" id="markdown-files" accept=".md,text/markdown" multiple hidden><a class="button quiet" href="/api/markdown/example" download>Скачать пример .md</a></div><p class="form-help">До 500 файлов и 10 МБ. В простом файле используйте разделы «## Вопрос» и «## Ответ», либо заголовок «# Вопрос» и ответ ниже. В экспортированных файлах сохраняйте свойства и разделители полей.</p><div id="markdown-preview" aria-live="polite"></div><p id="markdown-message" role="status" aria-live="polite"></p></section>`;
+  let pendingFiles=null;
+  const form=$("#fns-form"), message=$("#fns-message"), importMessage=$("#markdown-message"), preview=$("#markdown-preview");
+  const deck=()=>$("#markdown-deck").value;
+  async function task(target, action) {
+    if(busy) return;
+    busy=true; target.textContent="Выполняем…";
+    const buttons=[...main.querySelectorAll("button")]; buttons.forEach(b=>b.disabled=true);
+    try {await action();} catch(error) {target.textContent=error.message;}
+    finally {busy=false;buttons.forEach(b=>b.disabled=false);if(location.hash!=="#settings") await route();}
+  }
+  async function save() {
+    const data=Object.fromEntries(new FormData(form)); data.clear_token=form.elements.clear_token.checked;
+    const result=await api("/api/settings",data);
+    form.elements.token.value=""; form.elements.clear_token.checked=false;
+    form.elements.token.placeholder=result.has_token?"Токен сохранён. Оставьте пустым, чтобы сохранить его.":"Токен Fast Note Sync";
+    return result;
+  }
+  function showPreview(files, counts) {
+    pendingFiles=files;
+    preview.innerHTML=`<div class="markdown-summary"><h3>Готово к импорту</h3><p>Добавится: ${counts.added} · Обновится: ${counts.updated} · Без изменений: ${counts.unchanged}</p><button class="button dark" id="markdown-apply">Применить импорт</button><button class="button quiet" id="markdown-cancel">Отмена</button></div>`;
+    $("#markdown-apply").onclick=()=>task(importMessage,async()=> {
+      const result=await api("/api/markdown/import",{files:pendingFiles,deck_id:deck()});
+      pendingFiles=null;preview.innerHTML=""; await refresh();
+      importMessage.textContent=`Импорт завершён. Добавлено: ${result.added}, обновлено: ${result.updated}, без изменений: ${result.unchanged}.`;
+    });
+    $("#markdown-cancel").onclick=()=>{pendingFiles=null;preview.innerHTML="";importMessage.textContent="Импорт отменён.";};
+    importMessage.textContent="Проверьте результат и нажмите «Применить импорт».";
+  }
+  $("#markdown-deck").onchange=()=>{pendingFiles=null;preview.innerHTML="";importMessage.textContent="";};
+  form.onsubmit=event=>{event.preventDefault();task(message,async()=>{await save();message.textContent="Подключение сохранено.";});};
+  $("#fns-check").onclick=()=>{if(form.reportValidity()) task(message,async()=>{await save();await api("/api/fns/check",{});message.textContent="Подключено. Хранилище доступно.";});};
+  $("#fns-export").onclick=()=>{if(form.reportValidity()) task(message,async()=>{await save();const result=await api("/api/fns/export",{});message.textContent=`Выгрузка завершена. Записано: ${result.uploaded}, без изменений: ${result.unchanged}.`;});};
+  $("#fns-import").onclick=()=>{if(form.reportValidity()) task(importMessage,async()=>{pendingFiles=null;preview.innerHTML="";await save();const result=await api("/api/fns/preview",{deck_id:deck()});showPreview(result.files,result.counts);});};
+  $("#markdown-choose").onclick=()=>$("#markdown-files").click();
+  $("#markdown-files").onchange=event=> {
+    const files=[...event.target.files]; event.target.value=""; if(!files.length || busy) return;
+    pendingFiles=null;preview.innerHTML="";
+    task(importMessage,async()=> {
+      if(files.length>500 || files.reduce((n,f)=>n+f.size,0)>10*1024*1024) throw Error("Выберите до 500 файлов общим размером до 10 МБ.");
+      const decoded=await Promise.all(files.map(async file=> {
+        if(!file.name.toLowerCase().endsWith(".md")) throw Error("Выберите файлы .md.");
+        const bytes=await file.arrayBuffer();
+        let content; try {content=new TextDecoder("utf-8",{fatal:true}).decode(bytes);} catch {throw Error("Сохраните Markdown в кодировке UTF-8.");}
+        return {name:file.name,content};
+      }));
+      const counts=await api("/api/markdown/preview",{files:decoded,deck_id:deck()}); showPreview(decoded,counts);
+    });
+  };
+}
 function applyTheme(theme) { document.documentElement.dataset.theme=theme; }
 $("#theme-toggle").onclick=()=> {
   const theme=document.documentElement.dataset.theme==="dark"?"light":"dark";

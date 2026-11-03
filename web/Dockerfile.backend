@@ -15,7 +15,7 @@ RUN apt-get update \
 WORKDIR /app
 COPY requirements.txt ./
 RUN python -m pip install --no-cache-dir --only-binary=:all: -r requirements.txt
-COPY server.py auth.py ./
+COPY server.py auth.py markdown_io.py fns.py ./
 
 USER 10001:10001
 EXPOSE 8765

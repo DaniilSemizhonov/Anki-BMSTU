@@ -217,6 +217,30 @@ class HttpTests(unittest.TestCase):
         with urlopen(request, timeout=5) as r:
             self.assertEqual(r.status, 200)
 
+    def test_markdown_preview_import_and_private_settings(self):
+        with self.request("/api/decks", dict(name="Markdown HTTP")) as response:
+            did = json.load(response)["id"]
+        files = [dict(name="http-card.md", content="## Вопрос\nHTTP Markdown?\n\n## Ответ\n**Работает**")]
+        with self.request("/api/markdown/preview", dict(deck_id=did, files=files)) as response:
+            self.assertEqual(json.load(response)["added"], 1)
+        with self.request("/api/markdown/import", dict(deck_id=did, files=files)) as response:
+            self.assertEqual(json.load(response)["added"], 1)
+        with self.request("/api/markdown/import", dict(deck_id=did, files=files)) as response:
+            self.assertEqual(json.load(response)["unchanged"], 1)
+        with self.request("/api/markdown/export") as response:
+            self.assertEqual(response.read()[:2], b"PK")
+            self.assertEqual(response.headers.get_content_type(), "application/zip")
+        with self.request("/api/settings", dict(url="https://notes.example", vault="Test", folder="Anki", token="http-test-secret")) as response:
+            public = json.load(response)
+            self.assertTrue(public["has_token"])
+            self.assertNotIn("http-test-secret", str(public))
+        with self.request("/api/settings") as response:
+            self.assertNotIn("http-test-secret", response.read().decode())
+        with self.assertRaises(HTTPError) as error:
+            self.request("/api/settings", dict(token="changed"), token=False)
+        self.assertEqual(error.exception.code, 403)
+        error.exception.close()
+
     def test_request_guards(self):
         cases = [
             ("/api/decks", dict(name="blocked"), False, {}, 403),

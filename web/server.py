@@ -24,6 +24,8 @@ from anki.errors import NotFoundError, SearchError, InvalidInput
 from anki import import_export_pb2, generic_pb2, notetypes_pb2, deck_config_pb2
 from anki.utils import from_json_bytes
 from auth import Access, AuthenticationError
+from fns import Settings, Client
+from markdown_io import MarkdownError, export_notes, zip_notes, prepare_import, import_notes
 
 ROOT = Path(__file__).resolve().parent
 MAX_UPLOAD = 100 * 1024 * 1024
@@ -53,6 +55,7 @@ class Library:
         path = Path(path).resolve()
         path.parent.mkdir(parents=True, exist_ok=True)
         self.col = Collection(str(path), backend=RustBackend(langs=["ru"]))
+        self.markdown_settings = Settings(path.parent / "markdown-settings.json")
         self.pending = None
         self.csrf = secrets.token_urlsafe(32)
         self.last_answer_step = None
@@ -380,7 +383,7 @@ class Handler(BaseHTTPRequestHandler):
                 elif not secrets.compare_digest(self.headers.get("X-Anki-Token", ""), csrf):
                     return self.respond(403, dict(error="Обновите страницу перед сохранением."))
                 length = integer(self.headers.get("Content-Length", 0))
-                limit = MAX_UPLOAD if path.path == "/api/import" else 10*1024*1024 if path.path == "/api/media" else 1024*1024
+                limit = MAX_UPLOAD if path.path == "/api/import" else 20*1024*1024 if path.path.startswith("/api/markdown/") else 10*1024*1024 if path.path == "/api/media" else 1024*1024
                 if self.headers.get("Transfer-Encoding") or length < 0 or length > limit:
                     return self.respond(413, dict(error="Превышен допустимый размер запроса."))
                 raw = self.rfile.read(length)
@@ -402,7 +405,21 @@ class Handler(BaseHTTPRequestHandler):
                 if path.path == "/api/logout":
                     return self.respond(200, dict(ok=True), extra={"Set-Cookie":access.logout(self.headers.get("Cookie"))})
                 lib = self.library
-                if path.path == "/api/decks":
+                if path.path == "/api/settings":
+                    result = lib.markdown_settings.save(data)
+                elif path.path == "/api/markdown/preview":
+                    _, result = prepare_import(lib, data.get("files"), data.get("deck_id"))
+                elif path.path == "/api/markdown/import":
+                    result = import_notes(lib, data.get("files"), data.get("deck_id"))
+                elif path.path == "/api/fns/check":
+                    result = Client(lib.markdown_settings).check()
+                elif path.path == "/api/fns/export":
+                    result = Client(lib.markdown_settings).upload(export_notes(lib))
+                elif path.path == "/api/fns/preview":
+                    files = Client(lib.markdown_settings).download()
+                    _, counts = prepare_import(lib, files, data.get("deck_id"))
+                    result = dict(files=files, counts=counts)
+                elif path.path == "/api/decks":
                     name = text(data.get("name"), 200)
                     if lib.col.decks.id_for_name(name):
                         raise InvalidRequest("Такая колода уже существует.")
@@ -437,6 +454,14 @@ class Handler(BaseHTTPRequestHandler):
                 return self.respond(200, lib.notes(parse_qs(path.query)))
             if path.path == "/api/notetypes":
                 return self.respond(200, lib.note_types())
+            if path.path == "/api/settings":
+                return self.respond(200, lib.markdown_settings.public())
+            if path.path == "/api/markdown/export":
+                return self.respond(200, zip_notes(export_notes(lib)), "application/zip",
+                                    {"Content-Disposition": 'attachment; filename="anki-markdown.zip"'})
+            if path.path == "/api/markdown/example":
+                return self.respond(200, "---\nanki_kind: basic\ntags: [учёба]\n---\n\n## Вопрос\n\nЧто такое интервальное повторение?\n\n## Ответ\n\nПовторение материала через постепенно увеличивающиеся **интервалы**.\n", "text/markdown; charset=utf-8",
+                                    {"Content-Disposition": 'attachment; filename="anki-example.md"'})
             if path.path == "/api/statistics":
                 return self.respond(200, lib.statistics())
             if path.path == "/api/decks/settings":
@@ -461,7 +486,7 @@ class Handler(BaseHTTPRequestHandler):
             return self.respond(200, content, mimetypes.guess_type(str(file))[0] + "; charset=utf-8")
         except AuthenticationError as exc:
             self.respond(401, dict(error=str(exc)))
-        except (InvalidRequest, NotFoundError, SearchError, InvalidInput) as exc:
+        except (InvalidRequest, NotFoundError, SearchError, InvalidInput, MarkdownError) as exc:
             self.respond(400, dict(error=str(exc)))
         except (BrokenPipeError, ConnectionResetError):
             pass

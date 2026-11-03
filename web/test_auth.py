@@ -100,7 +100,7 @@ class ProtectedHttpTests(unittest.TestCase):
         return urlopen(Request(self.url+path,data=data,headers=headers),timeout=5)
 
     def test_collection_media_and_export_require_login(self):
-        for path in ["/api/overview","/api/notes","/api/export","/media/test.png"]:
+        for path in ["/api/overview","/api/notes","/api/export","/media/test.png", "/api/settings", "/api/markdown/export", "/api/markdown/example"]:
             with self.subTest(path=path):
                 with self.assertRaises(HTTPError) as error:
                     self.request(path)

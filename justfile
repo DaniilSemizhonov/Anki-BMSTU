@@ -195,6 +195,10 @@ export UV_PROJECT_ENVIRONMENT := if os() == "windows" { "out\\pyenv" } else { "o
 run-web *args:
     sh web/run.sh {{ args }}
 
+# Install the independent web frontend's Python dependencies
+install-web-deps:
+    web/.venv/bin/python -m pip install --only-binary=:all: -r web/requirements.txt
+
 # Test the browser frontend against real temporary Anki collections
 check-web:
     web/.venv/bin/python -m unittest discover -s web -p 'test_*.py' -v
@@ -203,13 +207,27 @@ check-web:
 
 # Validate and start the two-container deployment (Docker Compose v2+)
 compose-check:
-    docker compose config --quiet
+    {{ compose }} config --quiet
+
+# Validate the optional Fast Note Sync deployment
+compose-check-fns:
+    {{ compose }} -f compose.yaml -f compose.fns.yaml config --quiet
+
+# Validate Fast Note Sync with Nginx Proxy Manager networking
+compose-check-fns-npm:
+    {{ compose }} -f compose.yaml -f compose.fns.yaml -f compose.npm.yaml -f compose.fns.npm.yaml config --quiet
+
+# Start Anki with a self-hosted Fast Note Sync service
+compose-up-fns:
+    docker compose -f compose.yaml -f compose.fns.yaml up -d --build
 
 compose-up:
     docker compose up -d --build
 
 compose-down:
     docker compose down
+
+compose := env("DOCKER_COMPOSE", "docker compose")
 
 # Exercise a disposable Compose deployment; never use on a personal collection
 smoke-compose *args:

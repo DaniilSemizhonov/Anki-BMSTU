@@ -145,6 +145,54 @@ ANKI_TELEGRAM_USER_ID=your-numeric-user-id
 Проверка с настоящим ботом ещё не выполнена. В Telegram Web браузер может
 блокировать сторонние cookie, необходимые для входа внутри iframe.
 
+## Fast Note Sync и Markdown
+
+Кнопка ⚙ в Anki открывает настройки подключения к
+[Fast Note Sync](https://github.com/haierkeys/fast-note-sync-service).
+Если сервис уже установлен и доступен backend-контейнеру, укажите его адрес,
+хранилище (vault), папку и токен в веб-интерфейсе Anki. Для внешнего адреса backend
+нужна сеть с исходящим доступом: базовая сеть `private` изолирована.
+Дополнение `compose.fns.yaml` добавляет такую сеть, не публикуя порт backend.
+
+Для запуска сервиса вместе с Anki:
+
+```sh
+docker compose -f compose.yaml -f compose.fns.yaml config --quiet
+docker compose -f compose.yaml -f compose.fns.yaml up -d --build
+```
+
+Fast Note Sync использует отдельные тома `fast_note_storage` и `fast_note_config`.
+Его порт по умолчанию доступен только на хосте: `127.0.0.1:9000`; параметры
+`FNS_BIND`, `FNS_PORT`, `FNS_IMAGE` можно менять в `.env`. Образ берётся из
+официальной инструкции проекта; для предсказуемых обновлений вместо `latest`
+можно задать конкретный тег или digest.
+
+Для NPM в Docker используйте все четыре файла:
+
+```sh
+docker compose -f compose.yaml -f compose.fns.yaml -f compose.npm.yaml -f compose.fns.npm.yaml up -d --build
+```
+
+Создайте отдельный HTTPS Proxy Host для заметок и направьте его на
+`http://anki-bmstu-notes:9000`. Для WebSocket-синхронизации Obsidian включите
+Websockets Support в NPM. Домен Anki по-прежнему направляется на
+`http://anki-bmstu-web:8080`.
+
+Зайдите в веб-панель Fast Note Sync, создайте аккаунт и хранилище, получите токен.
+В Anki → ⚙ укажите адрес `http://fast-note-sync:9000`, имя созданного хранилища,
+папку `Anki` и токен. Для собственного адреса HTTPS в этих настройках backend
+использует ту же сеть `notes`. Токену нужны REST-права чтения/записи заметок
+для клиента `anki-web` и выбранного vault.
+
+Затем доступны ручная выгрузка и импорт с предварительным просмотром.
+Выгрузка пишет только Markdown; вложения и история повторений остаются в Anki.
+Настройки и токен сохраняются в томе Anki (`/data/markdown-settings.json`).
+Токен не передаётся web-контейнеру и не возвращается браузеру после сохранения.
+Локальный импорт `.md` и скачивание Markdown ZIP работают без Fast Note Sync.
+
+С настоящим сервером Fast Note Sync интеграция ещё не проверена; автоматические
+тесты используют локальный HTTP-сервер с контрактом его REST API.
+
 ## Проверки сборки
 
 Конфигурации базового Compose и варианта с сетью NPM проверены официальным

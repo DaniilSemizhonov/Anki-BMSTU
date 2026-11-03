@@ -15,3 +15,6 @@
 @media(max-width:380px){
   .sidebar nav{width:100%;justify-content:space-between}
 }
+
+.settings-panel{max-width:820px}.settings-actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:20px}.checkbox-label{display:flex;gap:9px;align-items:center}.checkbox-label input{width:auto}.markdown-summary{margin-top:22px;padding:18px;border:1px solid #9dbb7c;border-radius:9px}.markdown-summary h3{margin:0}.settings-panel [role="status"]{font-size:12px;overflow-wrap:anywhere}.settings-panel input,.settings-panel select{min-width:0}.topbar a.icon-button{display:inline-flex;align-items:center;justify-content:center}
+@media(max-width:760px){.topbar>div{flex-wrap:wrap;justify-content:flex-end}.settings-actions .button{white-space:normal}.settings-panel{padding:18px}}

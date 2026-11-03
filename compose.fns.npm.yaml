@@ -1,0 +1,7 @@
+# Add with compose.fns.yaml and compose.npm.yaml when NPM runs in Docker.
+services:
+  fast-note-sync:
+    networks:
+      npm:
+        aliases:
+          - anki-bmstu-notes

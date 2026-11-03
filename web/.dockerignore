@@ -2,6 +2,8 @@
 !requirements.txt
 !server.py
 !auth.py
+!markdown_io.py
+!fns.py
 !nginx.conf
 !static/
 !static/**
